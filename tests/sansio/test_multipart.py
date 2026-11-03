@@ -180,3 +180,27 @@ Content-Type: text/plain; charset="UTF-8"
     for event in events:
         result += encoder.send_event(event)
     assert data == result
+
+
+def test_split_boundary_trailing_cr() -> None:
+    # Issue #3285: ensure data split byte-by-byte near the boundary
+    # does not append a stray \r
+    boundary = b"WZBOUND"
+    body = (
+        b'--WZBOUND\r\nContent-Disposition: form-data; name="a"\r\n\r\n'
+        b"\r\n--WZBOUND--\r\n"
+    )
+    dec = MultipartDecoder(boundary)
+    data = bytearray()
+    for b in body:
+        dec.receive_data(bytes([b]))
+        while True:
+            ev = dec.next_event()
+            if isinstance(ev, NeedData):
+                break
+            if isinstance(ev, Data):
+                data.extend(ev.data)
+            if isinstance(ev, Epilogue):
+                break
+    dec.receive_data(None)
+    assert bytes(data) == b""

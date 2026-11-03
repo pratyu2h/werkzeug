@@ -245,7 +245,8 @@ class MultipartDecoder:
         else:
             data_start = 0
 
-        if self.buffer.find(b"--" + self.boundary) == -1:
+        b_pos = self.buffer.find(b"--" + self.boundary)
+        if b_pos == -1:
             # No complete boundary in the buffer, but there may be
             # a partial boundary at the end.
             data_end = del_index = (
@@ -262,9 +263,15 @@ class MultipartDecoder:
                 data_end = match.start()
                 del_index = match.end()
             else:
-                data_end = del_index = (
-                    self._last_partial_boundary_index(data[data_start:]) + data_start
-                )
+                delim_start = b_pos
+                if (
+                    delim_start >= 2
+                    and self.buffer[delim_start - 2 : delim_start] == b"\r\n"
+                ):
+                    delim_start -= 2
+                elif delim_start >= 1 and self.buffer[delim_start - 1] in (0x0A, 0x0D):
+                    delim_start -= 1
+                data_end = del_index = max(data_start, delim_start)
             more_data = match is None
         return bytes(data[data_start:data_end]), del_index, more_data
 
@@ -273,8 +280,9 @@ class MultipartDecoder:
         # could be present in the data. This will be the earliest
         # position of a LF or a CR, unless that position is more
         # than a complete boundary from the end in which case there
-        # is no partial boundary.
-        complete_boundary_index = len(data) - len(b"\r\n--" + self.boundary)
+        # is no partial boundary. A closing boundary can have up to
+        # 4 more bytes ("--" + "\r\n").
+        complete_boundary_index = len(data) - (len(b"\r\n--" + self.boundary) + 4)
         try:
             last_nl = data.rindex(b"\n")
         except ValueError:
